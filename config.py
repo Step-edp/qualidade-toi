@@ -257,5 +257,30 @@ IRREGULARIDADE_COLORS = {
     "Não informado": "#B8C4D0",
 }
 
-# Senha de acesso — altere aqui ou defina a variável de ambiente DASHBOARD_PASSWORD
+# Senha de acesso legada (mantida por compatibilidade)
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "edp2026")
+
+# Perfis de acesso — cada um com senha e permissões próprias.
+# Em produção, defina as senhas por variável de ambiente:
+#   PERFIL_ADMIN_SENHA, PERFIL_LAB_SENHA, PERFIL_GESTAO_SENHA
+# "pages" = páginas visíveis no menu | "can_delete" = pode excluir registros
+ACCESS_PROFILES = {
+    "administrador": {
+        "label": "Administrador",
+        "password": os.environ.get("PERFIL_ADMIN_SENHA", "admin2026"),
+        "pages": ["dashboard", "dados", "cadastro", "inconsistencias"],
+        "can_delete": True,
+    },
+    "laboratorio": {
+        "label": "Laboratório",
+        "password": os.environ.get("PERFIL_LAB_SENHA", "lab2026"),
+        "pages": ["dashboard", "dados", "cadastro", "inconsistencias"],
+        "can_delete": False,
+    },
+    "gestao": {
+        "label": "Gestão",
+        "password": os.environ.get("PERFIL_GESTAO_SENHA", "gestao2026"),
+        "pages": ["dashboard"],
+        "can_delete": False,
+    },
+}

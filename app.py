@@ -17,6 +17,7 @@ from config import (
     DEVIATION_COLORS,
     DEVIATION_PILL_COLORS,
     DASHBOARD_PASSWORD,
+    ACCESS_PROFILES,
     IRREGULARIDADE_COLORS,
     LOGO_DIR,
     LOGO_FILENAMES,
@@ -246,6 +247,23 @@ div[data-testid="stButton"] > button span,
 }}
 .st-key-nav_menu_bar .nav-page-flag {{
     display: none !important;
+}}
+.nav-profile-badge {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px;
+    padding: 0 10px;
+    background: {COLORS['grey']};
+    color: {COLORS['navy']} !important;
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }}
 .st-key-nav_tabs_track {{
     background: {COLORS['grey']};
@@ -1470,14 +1488,23 @@ def check_password() -> bool:
             f'Laboratório de Medição · EDP SP</div>',
             unsafe_allow_html=True,
         )
+        perfil_key = st.selectbox(
+            "Perfil de acesso",
+            options=list(ACCESS_PROFILES.keys()),
+            format_func=lambda k: ACCESS_PROFILES[k]["label"],
+            key="login_profile",
+        )
         pwd = st.text_input("Senha de acesso", type="password", key="pwd_input")
         if st.button("Entrar", use_container_width=True, type="secondary"):
-            if pwd == DASHBOARD_PASSWORD:
+            perfil = ACCESS_PROFILES.get(perfil_key)
+            if perfil and pwd == perfil["password"]:
                 st.session_state["authenticated"] = True
+                st.session_state["profile"] = perfil_key
+                st.session_state["app_page"] = perfil["pages"][0]
                 st.rerun()
             else:
                 st.markdown(
-                    '<div class="login-error">Senha incorreta. Tente novamente.</div>',
+                    '<div class="login-error">Senha incorreta para o perfil selecionado.</div>',
                     unsafe_allow_html=True,
                 )
         st.markdown(
@@ -2630,11 +2657,44 @@ NAV_SLUG_BY_PAGE = {
     "cadastro": "cadastro",
     "inconsistencias": "inconsistencias",
 }
+NAV_WIDTHS = {
+    "dashboard": 1.0,
+    "dados": 1.35,
+    "cadastro": 1.0,
+    "inconsistencias": 1.4,
+}
+
+
+def current_profile() -> dict:
+    key = st.session_state.get("profile", "administrador")
+    return ACCESS_PROFILES.get(key, ACCESS_PROFILES["administrador"])
+
+
+def allowed_pages() -> list[str]:
+    return current_profile().get("pages", ["dashboard"])
+
+
+def profile_can_delete() -> bool:
+    return bool(current_profile().get("can_delete", False))
+
+
+def enforce_page_access() -> None:
+    """Garante que o perfil só acesse páginas permitidas."""
+    allowed = allowed_pages()
+    current = st.session_state.get("app_page", "dashboard")
+    effective = "dashboard" if current == "detalhe" else current
+    if effective not in allowed:
+        st.session_state.app_page = allowed[0]
 
 
 def render_nav_bar() -> None:
     if "app_page" not in st.session_state:
         st.session_state.app_page = "dashboard"
+
+    allowed = allowed_pages()
+    nav_items = [item for item in NAV_ITEMS if item[2] in allowed]
+    if not nav_items:
+        nav_items = [NAV_ITEMS[0]]
 
     page = st.session_state.app_page
     active_slug = NAV_SLUG_BY_PAGE.get(page, "painel")
@@ -2644,15 +2704,12 @@ def render_nav_bar() -> None:
             f'<span class="nav-page-flag nav-page-{active_slug}"></span>',
             unsafe_allow_html=True,
         )
-        tabs_col, logout_col = st.columns([9.2, 0.8], gap="small")
+        tabs_col, profile_col, logout_col = st.columns([7.6, 1.6, 0.8], gap="small")
         with tabs_col:
             with st.container(key="nav_tabs_track"):
-                c1, c2, c3, c4 = st.columns(
-                    [1.0, 1.35, 1.0, 1.4], gap="small"
-                )
-                for col, (key, label, page_id, _slug) in zip(
-                    (c1, c2, c3, c4), NAV_ITEMS
-                ):
+                widths = [NAV_WIDTHS.get(item[2], 1.0) for item in nav_items]
+                tab_cols = st.columns(widths, gap="small")
+                for col, (key, label, page_id, _slug) in zip(tab_cols, nav_items):
                     with col:
                         if st.button(
                             label,
@@ -2665,6 +2722,11 @@ def render_nav_bar() -> None:
                                 st.session_state.pop("detalhe_view", None)
                                 st.session_state.pop("detalhe_filters", None)
                             st.rerun()
+        with profile_col:
+            st.markdown(
+                f'<div class="nav-profile-badge">{current_profile()["label"]}</div>',
+                unsafe_allow_html=True,
+            )
         with logout_col:
             if st.button("Sair", key="logout", use_container_width=True, type="secondary"):
                 st.session_state.clear()
@@ -2976,6 +3038,7 @@ def page_inconsistencias(df: pd.DataFrame) -> None:
             hide_index=True,
         )
 
+        pode_excluir = profile_can_delete()
         indices = grupo["indices"]
         if grupo["tipo"] == "Registro duplicado" and len(indices) > 1:
             excluir = st.radio(
@@ -2984,7 +3047,9 @@ def page_inconsistencias(df: pd.DataFrame) -> None:
                 format_func=lambda i: inconsistencia_row_label(df, i),
                 key=f"excluir_{grupo['id']}",
             )
-            if st.button(
+            if not pode_excluir:
+                st.info("Somente o perfil Administrador pode excluir registros.")
+            elif st.button(
                 "Excluir registro selecionado",
                 key=f"btn_excluir_{grupo['id']}",
                 type="primary",
@@ -3000,7 +3065,9 @@ def page_inconsistencias(df: pd.DataFrame) -> None:
             idx = indices[0]
             st.caption(inconsistencia_row_label(df, idx))
             if grupo["tipo"] in ("Campo faltando",):
-                if st.button(
+                if not pode_excluir:
+                    st.info("Somente o perfil Administrador pode excluir registros.")
+                elif st.button(
                     "Excluir registro",
                     key=f"btn_excluir_{grupo['id']}",
                 ):
@@ -3369,6 +3436,7 @@ _ensure_data_cache_fresh()
 data = get_monitoramento_data(_data_file_version(), MONITORAMENTO_SCHEMA_VERSION)
 
 handle_drill_query()
+enforce_page_access()
 render_nav_bar()
 if st.session_state.get("app_page", "dashboard") not in (
     "dados",

@@ -721,11 +721,14 @@ def _equipe_key(row: pd.Series) -> str | None:
     return None
 
 
-def _equipe_display_label(key: str | None) -> str:
+def _equipe_display_label(key: object) -> str:
     """Rótulo da equipe apenas com matrículas (ex.: 6636 · 6472)."""
-    if not key:
+    if key is None or (isinstance(key, float) and pd.isna(key)):
         return "Sem matrícula"
-    return " · ".join(key.split("|"))
+    text = str(key).strip()
+    if not text or text.lower() in {"nan", "none"}:
+        return "Sem matrícula"
+    return " · ".join(text.split("|"))
 
 
 def csds_resumo(df: pd.DataFrame | None = None) -> pd.DataFrame:
